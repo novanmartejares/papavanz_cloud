@@ -44,8 +44,11 @@ export class ApiError extends Error {
 }
 
 export const api = {
-  register: (email: string, password: string) =>
-    request<Me>('/auth/register', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  register: (email: string, password: string, inviteCode?: string) =>
+    request<Me>('/auth/register', {
+      method: 'POST',
+      body: JSON.stringify({ email, password, inviteCode }),
+    }),
 
   login: (email: string, password: string) =>
     request<Me>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
