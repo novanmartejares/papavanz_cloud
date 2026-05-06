@@ -10,7 +10,7 @@ design.
 > [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the full design and
 > the deploy runbook.
 
-```
+``` 
 papavanz_cloud/
 ├── server/            ← Node 20 + Express + Prisma + SQLite API
 ├── web/               ← React + Vite frontend
