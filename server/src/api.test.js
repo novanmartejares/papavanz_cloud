@@ -380,6 +380,80 @@ test('folders: DELETE cascades children + files and refunds quota', async () => 
   assert.equal(files.body.length, 0);
 });
 
+// --- search + inline preview ------------------------------------------------
+
+test('search: q filters by filename across folders, scoped per-user', async () => {
+  const aliceToken = await register('search-alice@example.com');
+  const bobToken = await register('search-bob@example.com');
+
+  const folder = await agent()
+    .post('/api/folders')
+    .set(bearer(aliceToken))
+    .send({ name: 'Photos' });
+
+  await agent()
+    .post('/api/files')
+    .set(bearer(aliceToken))
+    .attach('file', Buffer.from('one'), 'beach-2026.jpg');
+  await agent()
+    .post('/api/files')
+    .set(bearer(aliceToken))
+    .field('folderId', folder.body.id)
+    .attach('file', Buffer.from('two'), 'PHOTO-mountain.jpg');
+  await agent()
+    .post('/api/files')
+    .set(bearer(aliceToken))
+    .attach('file', Buffer.from('three'), 'invoice.pdf');
+
+  // Bob has a "beach" file too — must NOT appear in Alice's search.
+  await agent()
+    .post('/api/files')
+    .set(bearer(bobToken))
+    .attach('file', Buffer.from('bob'), 'beach-bob.jpg');
+
+  // Alice searches for "beach": one match across folders, only hers.
+  const beach = await agent().get('/api/files?q=beach').set(bearer(aliceToken));
+  assert.equal(beach.status, 200);
+  assert.equal(beach.body.length, 1);
+  assert.equal(beach.body[0].originalName, 'beach-2026.jpg');
+
+  // Case-insensitive: "photo" matches "PHOTO-mountain.jpg" via SQLite LIKE.
+  const photo = await agent().get('/api/files?q=photo').set(bearer(aliceToken));
+  assert.equal(photo.body.length, 1);
+  assert.equal(photo.body[0].originalName, 'PHOTO-mountain.jpg');
+  // The match is in a folder, not at root.
+  assert.equal(photo.body[0].folderId, folder.body.id);
+
+  // No match → empty array, not 404.
+  const none = await agent().get('/api/files?q=zzznomatch').set(bearer(aliceToken));
+  assert.equal(none.status, 200);
+  assert.equal(none.body.length, 0);
+});
+
+test('preview: download with inline=1 flips Content-Disposition to inline', async () => {
+  const token = await register('preview-1@example.com');
+  const up = await agent()
+    .post('/api/files')
+    .set(bearer(token))
+    .attach('file', Buffer.from('img-bytes'), 'photo.jpg');
+  const id = up.body.id;
+
+  // Default: attachment.
+  const def = await agent().get(`/api/files/${id}/download`).set(bearer(token));
+  assert.equal(def.status, 200);
+  assert.match(def.headers['content-disposition'], /^attachment;/);
+
+  // inline=1: inline (so the browser <img src=...> renders it).
+  const inl = await agent().get(`/api/files/${id}/download?inline=1`).set(bearer(token));
+  assert.equal(inl.status, 200);
+  assert.match(inl.headers['content-disposition'], /^inline;/);
+
+  // Cross-user inline access still 404 — IDOR holds.
+  const otherToken = await register('preview-2@example.com');
+  const peek = await agent().get(`/api/files/${id}/download?inline=1`).set(bearer(otherToken));
+  assert.equal(peek.status, 404);
+});
+
 // --- bulk delete + download -------------------------------------------------
 
 test('bulk delete: removes files + folders + nested files in one call, refunds quota', async () => {
