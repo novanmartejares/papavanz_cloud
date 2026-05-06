@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { timingSafeEqual } from 'node:crypto';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { z } from 'zod';
@@ -11,6 +12,10 @@ const router = Router();
 const credsSchema = z.object({
   email: z.string().email().max(254),
   password: z.string().min(8).max(128),
+});
+
+const registerSchema = credsSchema.extend({
+  inviteCode: z.string().max(128).optional(),
 });
 
 const cookieOpts = {
@@ -27,7 +32,19 @@ function issueToken(user) {
 
 router.post('/register', async (req, res, next) => {
   try {
-    const { email, password } = credsSchema.parse(req.body);
+    const { email, password, inviteCode } = registerSchema.parse(req.body);
+
+    // Optional registration gate. When INVITE_CODE is set in the environment,
+    // the request body's inviteCode must match (constant-time compare).
+    const required = process.env.INVITE_CODE;
+    if (required && required.length > 0) {
+      const provided = inviteCode ?? '';
+      const a = Buffer.from(required);
+      const b = Buffer.from(provided);
+      const ok = a.length === b.length && timingSafeEqual(a, b);
+      if (!ok) return res.status(403).json({ error: 'invalid invite code' });
+    }
+
     const existing = await db.user.findUnique({ where: { email } });
     if (existing) return res.status(409).json({ error: 'email already registered' });
 

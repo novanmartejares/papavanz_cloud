@@ -173,3 +173,39 @@ test('unauthenticated requests are rejected', async () => {
   const res = await agent().get('/api/files');
   assert.equal(res.status, 401);
 });
+
+test('invite code: when set, register requires the matching code', async () => {
+  process.env.INVITE_CODE = 'top-secret-team-invite';
+  try {
+    // No invite code in body → 403
+    const noCode = await agent()
+      .post('/auth/register')
+      .send({ email: 'invite-1@example.com', password: 'password123' });
+    assert.equal(noCode.status, 403);
+    assert.match(noCode.body.error, /invite/i);
+
+    // Wrong invite code → 403
+    const wrong = await agent()
+      .post('/auth/register')
+      .send({ email: 'invite-2@example.com', password: 'password123', inviteCode: 'nope' });
+    assert.equal(wrong.status, 403);
+
+    // Correct invite code → 201
+    const ok = await agent().post('/auth/register').send({
+      email: 'invite-3@example.com',
+      password: 'password123',
+      inviteCode: 'top-secret-team-invite',
+    });
+    assert.equal(ok.status, 201, `expected 201, got ${ok.status}: ${ok.text}`);
+  } finally {
+    delete process.env.INVITE_CODE;
+  }
+});
+
+test('invite code: when unset, register stays open', async () => {
+  delete process.env.INVITE_CODE;
+  const res = await agent()
+    .post('/auth/register')
+    .send({ email: 'open-reg@example.com', password: 'password123' });
+  assert.equal(res.status, 201);
+});
