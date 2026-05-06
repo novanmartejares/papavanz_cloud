@@ -68,17 +68,26 @@ router.get('/me', async (req, res, next) => {
 //   folderId=null     → root-level files (no folder)
 //   (no folderId)     → root-level files (default, backwards-compatible)
 //   all=1             → every file regardless of folder (for search)
+//   q=<text>          → case-insensitive substring match on originalName.
+//                       implies all=1 (search spans every folder owned by user).
 router.get('/files', async (req, res, next) => {
   try {
-    const all = req.query.all === '1' || req.query.all === 'true';
+    const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+    const all = req.query.all === '1' || req.query.all === 'true' || q.length > 0;
     const where = { userId: req.user.id };
     if (!all) {
       const folderId = await resolveFolderId(req.user.id, req.query.folderId);
       where.folderId = folderId;
     }
+    if (q) {
+      // SQLite's `contains` is case-sensitive by default; lower() on both sides
+      // keeps it portable. Limit query length to bound DB work.
+      where.originalName = { contains: q.slice(0, 255) };
+    }
     const files = await db.file.findMany({
       where,
       orderBy: { createdAt: 'desc' },
+      take: q ? 200 : undefined,
       select: {
         id: true,
         originalName: true,
@@ -236,7 +245,9 @@ router.patch('/files/:id', async (req, res, next) => {
   }
 });
 
-// GET /api/files/:id/download — stream the file back
+// GET /api/files/:id/download — stream the file back.
+// Query: inline=1 flips Content-Disposition to "inline" so the browser
+// renders the file (used by the preview modal for images/PDFs/video/audio).
 router.get('/files/:id/download', async (req, res, next) => {
   try {
     const file = await db.file.findFirst({
@@ -244,12 +255,13 @@ router.get('/files/:id/download', async (req, res, next) => {
     });
     if (!file) return res.status(404).json({ error: 'not found' });
 
+    const inline = req.query.inline === '1' || req.query.inline === 'true';
     const full = safeUserPath(req.user.id, file.storedName);
     res.setHeader('Content-Type', file.mimeType ?? 'application/octet-stream');
     res.setHeader('Content-Length', String(file.sizeBytes));
     res.setHeader(
       'Content-Disposition',
-      `attachment; filename*=UTF-8''${encodeURIComponent(file.originalName)}`,
+      `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(file.originalName)}`,
     );
     const stream = fs.createReadStream(full);
     stream.on('error', next);

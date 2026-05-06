@@ -38,14 +38,27 @@ export function createApp() {
 
   app.get('/health', (_req, res) => res.json({ ok: true }));
 
+  // Rate limits are intentionally lax in tests so the suite can register
+  // many users in a single run without hitting the limiter.
+  const isTest = process.env.NODE_ENV === 'test';
   app.use(
     '/auth',
-    rateLimit({ windowMs: 60_000, max: 30, standardHeaders: true, legacyHeaders: false }),
+    rateLimit({
+      windowMs: 60_000,
+      max: isTest ? 10_000 : 30,
+      standardHeaders: true,
+      legacyHeaders: false,
+    }),
     authRoutes,
   );
   app.use(
     '/api',
-    rateLimit({ windowMs: 60_000, max: 240, standardHeaders: true, legacyHeaders: false }),
+    rateLimit({
+      windowMs: 60_000,
+      max: isTest ? 10_000 : 240,
+      standardHeaders: true,
+      legacyHeaders: false,
+    }),
     fileRoutes,
     folderRoutes,
     bulkRoutes,

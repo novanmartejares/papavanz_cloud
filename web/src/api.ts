@@ -73,9 +73,13 @@ export const api = {
 
   // Files
 
-  listFiles: (folderId: string | null = null, opts: { all?: boolean } = {}) => {
+  listFiles: (
+    folderId: string | null = null,
+    opts: { all?: boolean; q?: string } = {},
+  ) => {
     const params = new URLSearchParams();
-    if (opts.all) params.set('all', '1');
+    if (opts.q) params.set('q', opts.q);
+    else if (opts.all) params.set('all', '1');
     else if (folderId) params.set('folderId', folderId);
     const qs = params.toString();
     return request<FileMeta[]>(`/api/files${qs ? `?${qs}` : ''}`);
@@ -119,6 +123,10 @@ export const api = {
   },
 
   downloadUrl: (id: string) => `/api/files/${id}/download`,
+
+  // Inline-render URL: same blob but Content-Disposition: inline so it
+  // renders in <img>/<video>/<iframe> instead of triggering a save dialog.
+  previewUrl: (id: string) => `/api/files/${id}/download?inline=1`,
 
   deleteFile: (id: string) => request<void>(`/api/files/${id}`, { method: 'DELETE' }),
 
