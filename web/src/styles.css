@@ -197,3 +197,34 @@ button:disabled { opacity: 0.6; cursor: progress; }
   margin: 8px 0;
   background: rgba(91,157,255,0.06);
 }
+
+.checkbox-col {
+  width: 36px;
+  text-align: center;
+}
+.checkbox-col input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+  accent-color: var(--accent);
+  margin: 0;
+}
+
+.selection-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: rgba(91,157,255,0.08);
+  border: 1px solid rgba(91,157,255,0.3);
+  border-radius: var(--radius);
+  font-size: 14px;
+  flex-wrap: wrap;
+}
+.selection-bar span { color: var(--text); }
+.selection-actions { display: flex; gap: 6px; align-items: center; }
+
+.upload-progress { margin: 8px 0 12px; }
+.upload-progress .small { font-size: 12px; margin: 0 0 4px; }

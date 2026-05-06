@@ -159,4 +159,49 @@ export const api = {
     }),
 
   deleteFolder: (id: string) => request<void>(`/api/folders/${id}`, { method: 'DELETE' }),
+
+  // Bulk actions
+
+  bulkDelete: (fileIds: string[], folderIds: string[]) =>
+    request<{ deletedFiles: number; deletedFolders: number; refundedBytes: number }>(
+      '/api/bulk/delete',
+      {
+        method: 'POST',
+        body: JSON.stringify({ fileIds, folderIds }),
+      },
+    ),
+
+  // Trigger a zip download in the browser. Uses fetch + Blob so the cookie auth
+  // works without exposing ids in the URL (POST body keeps the request small
+  // even for hundreds of selected items).
+  bulkDownload: async (fileIds: string[], folderIds: string[]) => {
+    const res = await fetch('/api/bulk/download', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fileIds, folderIds }),
+    });
+    if (!res.ok) {
+      const text = await res.text();
+      let message = text;
+      try {
+        message = JSON.parse(text).error ?? text;
+      } catch {
+        /* keep raw */
+      }
+      throw new ApiError(res.status, message || res.statusText);
+    }
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') ?? '';
+    const match = /filename="?([^";]+)"?/.exec(cd);
+    const filename = match?.[1] ?? `papavanz-cloud-${new Date().toISOString().slice(0, 10)}.zip`;
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+  },
 };

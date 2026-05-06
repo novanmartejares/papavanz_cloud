@@ -39,16 +39,25 @@ function breadcrumbFor(folders: FolderMeta[], currentId: string | null): FolderM
   return chain;
 }
 
+interface UploadProgress {
+  total: number;
+  done: number;
+  currentName: string;
+  currentPct: number;
+}
+
 export default function Dashboard({ me, onMeChange }: Props) {
   const [folders, setFolders] = useState<FolderMeta[]>([]);
   const [files, setFiles] = useState<FileMeta[]>([]);
   const [currentFolderId, setCurrentFolderId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
+  const [uploadProgress, setUploadProgress] = useState<UploadProgress | null>(null);
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
   const [dragActive, setDragActive] = useState(false);
+  const [selectedFileIds, setSelectedFileIds] = useState<Set<string>>(new Set());
+  const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const refresh = useCallback(async () => {
@@ -70,28 +79,43 @@ export default function Dashboard({ me, onMeChange }: Props) {
     refresh();
   }, [refresh]);
 
-  async function handleUpload(file: File) {
+  // Reset selection when navigating between folders.
+  useEffect(() => {
+    setSelectedFileIds(new Set());
+    setSelectedFolderIds(new Set());
+  }, [currentFolderId]);
+
+  async function handleUploadMany(fileList: File[]) {
+    if (fileList.length === 0) return;
     setError(null);
-    setUploading(true);
-    setProgress(0);
-    try {
-      await api.uploadFile(file, currentFolderId, setProgress);
-      await refresh();
-    } catch (err) {
-      if (err instanceof ApiError) {
-        setError(
-          err.status === 413
-            ? `Storage full — this file would exceed your ${fmtBytes(me.storageQuota)} quota.`
-            : err.message,
+    const total = fileList.length;
+    let done = 0;
+    let lastError: ApiError | null = null;
+    for (const file of fileList) {
+      setUploadProgress({ total, done, currentName: file.name, currentPct: 0 });
+      try {
+        await api.uploadFile(file, currentFolderId, (pct) =>
+          setUploadProgress({ total, done, currentName: file.name, currentPct: pct }),
         );
-      } else {
-        setError('Upload failed');
+      } catch (err) {
+        if (err instanceof ApiError) {
+          lastError = err;
+          // Stop early on quota — there's no way subsequent uploads succeed.
+          if (err.status === 413) break;
+        }
       }
-    } finally {
-      setUploading(false);
-      setProgress(0);
-      if (inputRef.current) inputRef.current.value = '';
+      done++;
     }
+    setUploadProgress(null);
+    if (inputRef.current) inputRef.current.value = '';
+    if (lastError) {
+      setError(
+        lastError.status === 413
+          ? `Storage full — uploads stopped at ${done}/${total}.`
+          : `Upload error: ${lastError.message} (${done}/${total} succeeded)`,
+      );
+    }
+    await refresh();
   }
 
   async function handleDeleteFile(id: string) {
@@ -127,7 +151,6 @@ export default function Dashboard({ me, onMeChange }: Props) {
       return;
     try {
       await api.deleteFolder(id);
-      // If we just deleted the current folder, walk back to its parent (or root).
       if (id === currentFolderId) {
         const current = folders.find((f) => f.id === id);
         setCurrentFolderId(current?.parentId ?? null);
@@ -172,12 +195,35 @@ export default function Dashboard({ me, onMeChange }: Props) {
     }
   }
 
-  // Drag-and-drop from OS / desktop into the upload zone.
+  // Drag-and-drop from OS / desktop into the upload zone (multi-file).
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragActive(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) handleUpload(file);
+    const list = Array.from(e.dataTransfer.files ?? []);
+    if (list.length > 0) handleUploadMany(list);
+  }
+
+  function toggleFile(id: string) {
+    setSelectedFileIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleFolder(id: string) {
+    setSelectedFolderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedFileIds(new Set());
+    setSelectedFolderIds(new Set());
   }
 
   const subfolders = useMemo(
@@ -188,6 +234,55 @@ export default function Dashboard({ me, onMeChange }: Props) {
     () => breadcrumbFor(folders, currentFolderId),
     [folders, currentFolderId],
   );
+
+  const allChecked =
+    subfolders.length + files.length > 0 &&
+    subfolders.every((f) => selectedFolderIds.has(f.id)) &&
+    files.every((f) => selectedFileIds.has(f.id));
+  const someChecked = selectedFileIds.size + selectedFolderIds.size > 0;
+
+  function toggleAll() {
+    if (allChecked) {
+      clearSelection();
+    } else {
+      setSelectedFolderIds(new Set(subfolders.map((f) => f.id)));
+      setSelectedFileIds(new Set(files.map((f) => f.id)));
+    }
+  }
+
+  async function handleBulkDelete() {
+    const fileCount = selectedFileIds.size;
+    const folderCount = selectedFolderIds.size;
+    if (fileCount + folderCount === 0) return;
+    const parts = [];
+    if (fileCount) parts.push(`${fileCount} file${fileCount === 1 ? '' : 's'}`);
+    if (folderCount)
+      parts.push(`${folderCount} folder${folderCount === 1 ? '' : 's'} (with contents)`);
+    if (!confirm(`Delete ${parts.join(' and ')}? This cannot be undone.`)) return;
+
+    setBusy(true);
+    try {
+      await api.bulkDelete([...selectedFileIds], [...selectedFolderIds]);
+      clearSelection();
+      await refresh();
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleBulkDownload() {
+    if (selectedFileIds.size + selectedFolderIds.size === 0) return;
+    setBusy(true);
+    try {
+      await api.bulkDownload([...selectedFileIds], [...selectedFolderIds]);
+    } catch (err) {
+      if (err instanceof ApiError) setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   const pct = Math.min(100, (me.storageUsed / me.storageQuota) * 100);
   const overWarn = pct >= 90;
@@ -253,12 +348,15 @@ export default function Dashboard({ me, onMeChange }: Props) {
                 ref={inputRef}
                 type="file"
                 hidden
+                multiple
                 onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) handleUpload(f);
+                  const list = Array.from(e.target.files ?? []);
+                  if (list.length > 0) handleUploadMany(list);
                 }}
               />
-              {uploading ? `Uploading… ${progress.toFixed(0)}%` : 'Upload'}
+              {uploadProgress
+                ? `Uploading ${uploadProgress.done + 1}/${uploadProgress.total}…`
+                : 'Upload'}
             </label>
           </div>
         </div>
@@ -288,9 +386,17 @@ export default function Dashboard({ me, onMeChange }: Props) {
 
         {error && <p className="error">{error}</p>}
 
-        {uploading && (
-          <div className="quota-bar small">
-            <div className="quota-fill" style={{ width: `${progress}%` }} />
+        {uploadProgress && (
+          <div className="upload-progress">
+            <p className="muted small">
+              {uploadProgress.currentName} — {uploadProgress.currentPct.toFixed(0)}%
+            </p>
+            <div className="quota-bar small">
+              <div
+                className="quota-fill"
+                style={{ width: `${uploadProgress.currentPct}%` }}
+              />
+            </div>
           </div>
         )}
 
@@ -298,14 +404,55 @@ export default function Dashboard({ me, onMeChange }: Props) {
           <p className="muted drop-hint">Drop to upload into this folder</p>
         )}
 
+        {someChecked && (
+          <div className="selection-bar">
+            <span>
+              {selectedFileIds.size + selectedFolderIds.size} selected
+              {selectedFolderIds.size > 0 && ' (folders include their contents)'}
+            </span>
+            <div className="selection-actions">
+              <button
+                type="button"
+                className="btn-link"
+                onClick={handleBulkDownload}
+                disabled={busy}
+              >
+                Download zip
+              </button>
+              <button
+                type="button"
+                className="btn-link danger"
+                onClick={handleBulkDelete}
+                disabled={busy}
+              >
+                Delete
+              </button>
+              <button type="button" className="btn-link" onClick={clearSelection}>
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+
         {subfolders.length === 0 && files.length === 0 ? (
           <p className="muted">
-            This folder is empty. Drag a file here, click Upload, or create a subfolder.
+            This folder is empty. Drag files here, click Upload, or create a subfolder.
           </p>
         ) : (
           <table className="files">
             <thead>
               <tr>
+                <th className="checkbox-col">
+                  <input
+                    type="checkbox"
+                    aria-label="Select all"
+                    checked={allChecked}
+                    ref={(el) => {
+                      if (el) el.indeterminate = !allChecked && someChecked;
+                    }}
+                    onChange={toggleAll}
+                  />
+                </th>
                 <th>Name</th>
                 <th>Size</th>
                 <th>Modified</th>
@@ -315,6 +462,14 @@ export default function Dashboard({ me, onMeChange }: Props) {
             <tbody>
               {subfolders.map((f) => (
                 <tr key={f.id} className="folder-row">
+                  <td className="checkbox-col">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select folder ${f.name}`}
+                      checked={selectedFolderIds.has(f.id)}
+                      onChange={() => toggleFolder(f.id)}
+                    />
+                  </td>
                   <td className="filename">
                     <button className="btn-link folder-name" onClick={() => setCurrentFolderId(f.id)}>
                       <span aria-hidden>📁</span> {f.name}
@@ -337,6 +492,14 @@ export default function Dashboard({ me, onMeChange }: Props) {
               ))}
               {files.map((f) => (
                 <tr key={f.id}>
+                  <td className="checkbox-col">
+                    <input
+                      type="checkbox"
+                      aria-label={`Select file ${f.originalName}`}
+                      checked={selectedFileIds.has(f.id)}
+                      onChange={() => toggleFile(f.id)}
+                    />
+                  </td>
                   <td className="filename">{f.originalName}</td>
                   <td>{fmtBytes(f.sizeBytes)}</td>
                   <td>{new Date(f.createdAt).toLocaleString()}</td>

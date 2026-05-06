@@ -380,6 +380,174 @@ test('folders: DELETE cascades children + files and refunds quota', async () => 
   assert.equal(files.body.length, 0);
 });
 
+// --- bulk delete + download -------------------------------------------------
+
+test('bulk delete: removes files + folders + nested files in one call, refunds quota', async () => {
+  const token = await register('bulk-delete-1@example.com');
+
+  // Layout: /a.bin (root), /Photos/b.bin, /Photos/2026/c.bin
+  const photos = await agent().post('/api/folders').set(bearer(token)).send({ name: 'Photos' });
+  const sub = await agent()
+    .post('/api/folders')
+    .set(bearer(token))
+    .send({ name: '2026', parentId: photos.body.id });
+
+  const a = await agent()
+    .post('/api/files')
+    .set(bearer(token))
+    .attach('file', Buffer.alloc(100, 'a'), 'a.bin');
+  const b = await agent()
+    .post('/api/files')
+    .set(bearer(token))
+    .field('folderId', photos.body.id)
+    .attach('file', Buffer.alloc(150, 'b'), 'b.bin');
+  await agent()
+    .post('/api/files')
+    .set(bearer(token))
+    .field('folderId', sub.body.id)
+    .attach('file', Buffer.alloc(200, 'c'), 'c.bin');
+
+  const beforeMe = await agent().get('/api/me').set(bearer(token));
+  assert.equal(beforeMe.body.storageUsed, 450);
+
+  // Delete /a.bin (direct file) AND /Photos (folder, which contains b.bin and 2026/c.bin)
+  const res = await agent()
+    .post('/api/bulk/delete')
+    .set(bearer(token))
+    .send({ fileIds: [a.body.id], folderIds: [photos.body.id] });
+  assert.equal(res.status, 200, `expected 200, got ${res.status}: ${res.text}`);
+  assert.equal(res.body.deletedFiles, 3, 'all 3 files counted');
+  assert.equal(res.body.deletedFolders, 2, 'both Photos and 2026 deleted');
+  assert.equal(res.body.refundedBytes, 450);
+
+  // b is also gone (was in Photos).
+  void b;
+
+  // Storage refunded fully.
+  const afterMe = await agent().get('/api/me').set(bearer(token));
+  assert.equal(afterMe.body.storageUsed, 0);
+
+  // No folders, no files left.
+  const folders = await agent().get('/api/folders').set(bearer(token));
+  assert.equal(folders.body.length, 0);
+  const files = await agent().get('/api/files?all=1').set(bearer(token));
+  assert.equal(files.body.length, 0);
+});
+
+test('bulk delete: ignores other users\' ids (no leak, no cross-user delete)', async () => {
+  const aliceToken = await register('bulk-delete-alice@example.com');
+  const bobToken = await register('bulk-delete-bob@example.com');
+
+  const aliceFile = await agent()
+    .post('/api/files')
+    .set(bearer(aliceToken))
+    .attach('file', Buffer.from('alice'), 'a.txt');
+  const aliceFolder = await agent()
+    .post('/api/folders')
+    .set(bearer(aliceToken))
+    .send({ name: 'AliceFolder' });
+
+  // Bob fires a bulk-delete with Alice's IDs. Server must silently ignore them.
+  const res = await agent()
+    .post('/api/bulk/delete')
+    .set(bearer(bobToken))
+    .send({ fileIds: [aliceFile.body.id], folderIds: [aliceFolder.body.id] });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.deletedFiles, 0, 'no Alice files deleted');
+  assert.equal(res.body.deletedFolders, 0, 'no Alice folders deleted');
+  assert.equal(res.body.refundedBytes, 0);
+
+  // Alice's data is intact.
+  const aliceFiles = await agent().get('/api/files?all=1').set(bearer(aliceToken));
+  assert.equal(aliceFiles.body.length, 1);
+  const aliceFolders = await agent().get('/api/folders').set(bearer(aliceToken));
+  assert.equal(aliceFolders.body.length, 1);
+});
+
+test('bulk delete: empty body returns 400', async () => {
+  const token = await register('bulk-delete-empty@example.com');
+  const res = await agent().post('/api/bulk/delete').set(bearer(token)).send({});
+  assert.equal(res.status, 400);
+});
+
+test('bulk download: returns zip stream of requested files with correct paths', async () => {
+  const token = await register('bulk-download-1@example.com');
+
+  const photos = await agent().post('/api/folders').set(bearer(token)).send({ name: 'Photos' });
+  await agent()
+    .post('/api/files')
+    .set(bearer(token))
+    .attach('file', Buffer.from('root-payload'), 'root.txt');
+  await agent()
+    .post('/api/files')
+    .set(bearer(token))
+    .field('folderId', photos.body.id)
+    .attach('file', Buffer.from('photo-payload'), 'photo.txt');
+
+  const list = await agent().get('/api/files?all=1').set(bearer(token));
+  const ids = list.body.map((f) => f.id);
+
+  const res = await agent()
+    .post('/api/bulk/download')
+    .set(bearer(token))
+    .send({ fileIds: ids })
+    .buffer(true)
+    .parse(binaryParser);
+  assert.equal(res.status, 200);
+  assert.match(res.headers['content-type'], /application\/zip/);
+  assert.match(res.headers['content-disposition'], /attachment;\s*filename="papavanz-cloud-/);
+  // Zip files start with PK\x03\x04
+  assert.equal(res.body[0], 0x50, 'first byte must be P');
+  assert.equal(res.body[1], 0x4b, 'second byte must be K');
+  assert.ok(res.body.length > 0, 'zip must have content');
+
+  // Extract: should contain "root.txt" and "Photos/photo.txt" entries.
+  const zipBody = res.body.toString('binary');
+  assert.ok(zipBody.includes('root.txt'), 'zip must reference root.txt');
+  assert.ok(zipBody.includes('Photos/photo.txt'), 'zip must reference Photos/photo.txt');
+});
+
+test('bulk download: cross-user fileIds are silently excluded', async () => {
+  const aliceToken = await register('bulk-download-alice@example.com');
+  const bobToken = await register('bulk-download-bob@example.com');
+
+  const aliceFile = await agent()
+    .post('/api/files')
+    .set(bearer(aliceToken))
+    .attach('file', Buffer.from('ALICE_SECRET_DATA'), 'alice-secret.txt');
+
+  // Bob also has one file.
+  await agent()
+    .post('/api/files')
+    .set(bearer(bobToken))
+    .attach('file', Buffer.from('bob-public'), 'bob.txt');
+
+  // Bob requests both ids — Alice's must be excluded from the zip.
+  const bobList = await agent().get('/api/files').set(bearer(bobToken));
+  const bobFileId = bobList.body[0].id;
+
+  const res = await agent()
+    .post('/api/bulk/download')
+    .set(bearer(bobToken))
+    .send({ fileIds: [aliceFile.body.id, bobFileId] })
+    .buffer(true)
+    .parse(binaryParser);
+  assert.equal(res.status, 200);
+  // Alice's file content must NOT appear in the zip.
+  const zipBody = res.body.toString('binary');
+  assert.ok(!zipBody.includes('ALICE_SECRET_DATA'), 'zip must NOT contain Alice\'s data');
+  assert.ok(!zipBody.includes('alice-secret.txt'), 'zip must NOT reference Alice\'s file');
+  assert.ok(zipBody.includes('bob.txt'), 'zip must contain Bob\'s file');
+});
+
+test('bulk download: empty selection returns 400', async () => {
+  const token = await register('bulk-download-empty@example.com');
+  const res = await agent().post('/api/bulk/download').set(bearer(token)).send({});
+  assert.equal(res.status, 400);
+});
+
+// ---------------------------------------------------------------------------
+
 test('folders: PATCH file move between folders', async () => {
   const token = await register('file-move@example.com');
   const a = await agent().post('/api/folders').set(bearer(token)).send({ name: 'A' });
