@@ -9,6 +9,7 @@ import { PORT, HOST, CORS_ORIGINS, IS_PROD, STATIC_DIR } from './config.js';
 import authRoutes from './routes/auth.js';
 import fileRoutes from './routes/files.js';
 import folderRoutes from './routes/folders.js';
+import bulkRoutes from './routes/bulk.js';
 import { notFound, errorHandler } from './middleware/errors.js';
 
 export function createApp() {
@@ -47,6 +48,7 @@ export function createApp() {
     rateLimit({ windowMs: 60_000, max: 240, standardHeaders: true, legacyHeaders: false }),
     fileRoutes,
     folderRoutes,
+    bulkRoutes,
   );
 
   // Optionally serve a built frontend (web/dist) from the same origin.
