@@ -209,3 +209,208 @@ test('invite code: when unset, register stays open', async () => {
     .send({ email: 'open-reg@example.com', password: 'password123' });
   assert.equal(res.status, 201);
 });
+
+// --- folders ----------------------------------------------------------------
+
+test('folders: create at root, list, fetch with children', async () => {
+  const token = await register('folders-1@example.com');
+
+  const create = await agent()
+    .post('/api/folders')
+    .set(bearer(token))
+    .send({ name: 'Photos' });
+  assert.equal(create.status, 201);
+  assert.equal(create.body.name, 'Photos');
+  assert.equal(create.body.parentId, null);
+
+  const folderId = create.body.id;
+
+  const sub = await agent()
+    .post('/api/folders')
+    .set(bearer(token))
+    .send({ name: '2026', parentId: folderId });
+  assert.equal(sub.status, 201);
+  assert.equal(sub.body.parentId, folderId);
+
+  const list = await agent().get('/api/folders').set(bearer(token));
+  assert.equal(list.status, 200);
+  assert.equal(list.body.length, 2);
+
+  const detail = await agent().get(`/api/folders/${folderId}`).set(bearer(token));
+  assert.equal(detail.status, 200);
+  assert.equal(detail.body.folder.id, folderId);
+  assert.equal(detail.body.subfolders.length, 1);
+  assert.equal(detail.body.subfolders[0].name, '2026');
+});
+
+test('folders: upload file into folder, list filters by folderId', async () => {
+  const token = await register('folders-2@example.com');
+  const f = await agent()
+    .post('/api/folders')
+    .set(bearer(token))
+    .send({ name: 'Docs' });
+  const folderId = f.body.id;
+
+  const up = await agent()
+    .post('/api/files')
+    .set(bearer(token))
+    .field('folderId', folderId)
+    .attach('file', Buffer.from('inside-folder'), 'doc.txt');
+  assert.equal(up.status, 201);
+  assert.equal(up.body.folderId, folderId);
+
+  // Root listing should NOT see the file (default = root only).
+  const root = await agent().get('/api/files').set(bearer(token));
+  assert.equal(root.status, 200);
+  assert.equal(root.body.length, 0);
+
+  // Folder-scoped listing sees it.
+  const inFolder = await agent()
+    .get(`/api/files?folderId=${folderId}`)
+    .set(bearer(token));
+  assert.equal(inFolder.status, 200);
+  assert.equal(inFolder.body.length, 1);
+  assert.equal(inFolder.body[0].folderId, folderId);
+
+  // all=1 sees it too.
+  const all = await agent().get('/api/files?all=1').set(bearer(token));
+  assert.equal(all.body.length, 1);
+});
+
+test('folders: upload with another user\'s folderId returns 404 (IDOR)', async () => {
+  const aliceToken = await register('idor-folder-a@example.com');
+  const bobToken = await register('idor-folder-b@example.com');
+
+  const aliceFolder = await agent()
+    .post('/api/folders')
+    .set(bearer(aliceToken))
+    .send({ name: 'AlicePrivate' });
+  const aliceFolderId = aliceFolder.body.id;
+
+  // Bob tries to upload into Alice's folder by guessing the id.
+  const bobUpload = await agent()
+    .post('/api/files')
+    .set(bearer(bobToken))
+    .field('folderId', aliceFolderId)
+    .attach('file', Buffer.from('payload'), 'sneaky.txt');
+  assert.equal(bobUpload.status, 404, `expected 404, got ${bobUpload.status}: ${bobUpload.text}`);
+
+  // Bob also can't fetch / delete Alice's folder.
+  const peek = await agent().get(`/api/folders/${aliceFolderId}`).set(bearer(bobToken));
+  assert.equal(peek.status, 404);
+  const del = await agent().delete(`/api/folders/${aliceFolderId}`).set(bearer(bobToken));
+  assert.equal(del.status, 404);
+
+  // Bob can't list Alice's folders.
+  const bobFolders = await agent().get('/api/folders').set(bearer(bobToken));
+  assert.equal(bobFolders.body.length, 0);
+});
+
+test('folders: PATCH rename', async () => {
+  const token = await register('folder-rename@example.com');
+  const f = await agent()
+    .post('/api/folders')
+    .set(bearer(token))
+    .send({ name: 'OldName' });
+  const id = f.body.id;
+
+  const renamed = await agent()
+    .patch(`/api/folders/${id}`)
+    .set(bearer(token))
+    .send({ name: 'NewName' });
+  assert.equal(renamed.status, 200);
+  assert.equal(renamed.body.name, 'NewName');
+});
+
+test('folders: PATCH move into descendant is rejected (no cycles)', async () => {
+  const token = await register('folder-cycle@example.com');
+  const a = await agent().post('/api/folders').set(bearer(token)).send({ name: 'A' });
+  const b = await agent()
+    .post('/api/folders')
+    .set(bearer(token))
+    .send({ name: 'B', parentId: a.body.id });
+
+  // Try to move A into B (B is A's child → cycle)
+  const cycle = await agent()
+    .patch(`/api/folders/${a.body.id}`)
+    .set(bearer(token))
+    .send({ parentId: b.body.id });
+  assert.equal(cycle.status, 400);
+  assert.match(cycle.body.error, /descendant/i);
+
+  // Try to move A into itself
+  const self = await agent()
+    .patch(`/api/folders/${a.body.id}`)
+    .set(bearer(token))
+    .send({ parentId: a.body.id });
+  assert.equal(self.status, 400);
+});
+
+test('folders: DELETE cascades children + files and refunds quota', async () => {
+  const token = await register('folder-delete@example.com');
+
+  const root = await agent().post('/api/folders').set(bearer(token)).send({ name: 'Root' });
+  const sub = await agent()
+    .post('/api/folders')
+    .set(bearer(token))
+    .send({ name: 'Sub', parentId: root.body.id });
+
+  const payload = Buffer.alloc(500, 'x');
+  const up = await agent()
+    .post('/api/files')
+    .set(bearer(token))
+    .field('folderId', sub.body.id)
+    .attach('file', payload, 'inside.bin');
+  assert.equal(up.status, 201);
+
+  const beforeMe = await agent().get('/api/me').set(bearer(token));
+  assert.equal(beforeMe.body.storageUsed, 500);
+
+  // Delete the root → both folders + the file should be gone, quota refunded.
+  const del = await agent().delete(`/api/folders/${root.body.id}`).set(bearer(token));
+  assert.equal(del.status, 204);
+
+  const afterMe = await agent().get('/api/me').set(bearer(token));
+  assert.equal(afterMe.body.storageUsed, 0);
+
+  const folders = await agent().get('/api/folders').set(bearer(token));
+  assert.equal(folders.body.length, 0);
+
+  const files = await agent().get('/api/files?all=1').set(bearer(token));
+  assert.equal(files.body.length, 0);
+});
+
+test('folders: PATCH file move between folders', async () => {
+  const token = await register('file-move@example.com');
+  const a = await agent().post('/api/folders').set(bearer(token)).send({ name: 'A' });
+  const b = await agent().post('/api/folders').set(bearer(token)).send({ name: 'B' });
+
+  const up = await agent()
+    .post('/api/files')
+    .set(bearer(token))
+    .field('folderId', a.body.id)
+    .attach('file', Buffer.from('move-me'), 'x.txt');
+  const fileId = up.body.id;
+
+  // Move A → B
+  const moved = await agent()
+    .patch(`/api/files/${fileId}`)
+    .set(bearer(token))
+    .send({ folderId: b.body.id });
+  assert.equal(moved.status, 200);
+  assert.equal(moved.body.folderId, b.body.id);
+
+  // A is empty, B has it.
+  const inA = await agent().get(`/api/files?folderId=${a.body.id}`).set(bearer(token));
+  assert.equal(inA.body.length, 0);
+  const inB = await agent().get(`/api/files?folderId=${b.body.id}`).set(bearer(token));
+  assert.equal(inB.body.length, 1);
+
+  // Move back to root (folderId: null)
+  const toRoot = await agent()
+    .patch(`/api/files/${fileId}`)
+    .set(bearer(token))
+    .send({ folderId: null });
+  assert.equal(toRoot.status, 200);
+  assert.equal(toRoot.body.folderId, null);
+});

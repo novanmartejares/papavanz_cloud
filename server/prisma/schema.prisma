@@ -15,12 +15,29 @@ model User {
   storageUsed  BigInt   @default(0)
   createdAt    DateTime @default(now())
   files        File[]
+  folders      Folder[]
+}
+
+model Folder {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  parentId  String?
+  parent    Folder?  @relation("FolderTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children  Folder[] @relation("FolderTree")
+  name      String
+  createdAt DateTime @default(now())
+  files     File[]
+
+  @@index([userId, parentId])
 }
 
 model File {
   id           String   @id @default(uuid())
   userId       String
   user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  folderId     String?
+  folder       Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
   originalName String
   storedName   String
   mimeType     String?
@@ -28,6 +45,6 @@ model File {
   sha256       String?
   createdAt    DateTime @default(now())
 
-  @@unique([userId, originalName])
   @@index([userId])
+  @@index([userId, folderId])
 }
