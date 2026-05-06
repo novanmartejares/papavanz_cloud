@@ -9,6 +9,7 @@ export default function AuthForm({ onAuthed }: Props) {
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [inviteCode, setInviteCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -17,8 +18,11 @@ export default function AuthForm({ onAuthed }: Props) {
     setError(null);
     setBusy(true);
     try {
-      const fn = mode === 'login' ? api.login : api.register;
-      await fn(email, password);
+      if (mode === 'login') {
+        await api.login(email, password);
+      } else {
+        await api.register(email, password, inviteCode || undefined);
+      }
       const me = await api.me();
       onAuthed(me);
     } catch (err) {
@@ -54,6 +58,18 @@ export default function AuthForm({ onAuthed }: Props) {
             onChange={(e) => setPassword(e.target.value)}
           />
         </label>
+        {mode === 'register' && (
+          <label>
+            <span>Invite code (if required)</span>
+            <input
+              type="text"
+              autoComplete="off"
+              value={inviteCode}
+              onChange={(e) => setInviteCode(e.target.value)}
+              placeholder="Leave blank if open registration"
+            />
+          </label>
+        )}
         {error && <p className="error">{error}</p>}
         <button type="submit" disabled={busy}>
           {busy ? '…' : mode === 'login' ? 'Sign in' : 'Register'}
