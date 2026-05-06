@@ -1,9 +1,11 @@
 import { pathToFileURL } from 'node:url';
+import path from 'node:path';
+import fs from 'node:fs';
 import express from 'express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
-import { PORT, HOST, CORS_ORIGINS, IS_PROD } from './config.js';
+import { PORT, HOST, CORS_ORIGINS, IS_PROD, STATIC_DIR } from './config.js';
 import authRoutes from './routes/auth.js';
 import fileRoutes from './routes/files.js';
 import { notFound, errorHandler } from './middleware/errors.js';
@@ -44,6 +46,22 @@ export function createApp() {
     rateLimit({ windowMs: 60_000, max: 240, standardHeaders: true, legacyHeaders: false }),
     fileRoutes,
   );
+
+  // Optionally serve a built frontend (web/dist) from the same origin.
+  // Enables single-port deployments behind Cloudflare Tunnel / Tailscale Funnel
+  // without needing a separate static-file host.
+  if (STATIC_DIR && fs.existsSync(STATIC_DIR)) {
+    const indexHtml = path.join(STATIC_DIR, 'index.html');
+    app.use(express.static(STATIC_DIR, { index: false, maxAge: '1h' }));
+    app.get('*', (req, res, next) => {
+      // Don't swallow API/auth/health 404s — those should still hit notFound.
+      if (req.path.startsWith('/api') || req.path.startsWith('/auth') || req.path === '/health') {
+        return next();
+      }
+      if (fs.existsSync(indexHtml)) return res.sendFile(indexHtml);
+      return next();
+    });
+  }
 
   app.use(notFound);
   app.use(errorHandler);
