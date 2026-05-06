@@ -12,6 +12,20 @@ export interface FileMeta {
   sizeBytes: number;
   mimeType: string | null;
   createdAt: string;
+  folderId: string | null;
+}
+
+export interface FolderMeta {
+  id: string;
+  parentId: string | null;
+  name: string;
+  createdAt: string;
+}
+
+export interface FolderDetail {
+  folder: FolderMeta;
+  subfolders: FolderMeta[];
+  files: FileMeta[];
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -57,12 +71,25 @@ export const api = {
 
   me: () => request<Me>('/api/me'),
 
-  listFiles: () => request<FileMeta[]>('/api/files'),
+  // Files
 
-  uploadFile: async (file: File, onProgress?: (pct: number) => void) => {
+  listFiles: (folderId: string | null = null, opts: { all?: boolean } = {}) => {
+    const params = new URLSearchParams();
+    if (opts.all) params.set('all', '1');
+    else if (folderId) params.set('folderId', folderId);
+    const qs = params.toString();
+    return request<FileMeta[]>(`/api/files${qs ? `?${qs}` : ''}`);
+  },
+
+  uploadFile: async (
+    file: File,
+    folderId: string | null = null,
+    onProgress?: (pct: number) => void,
+  ) => {
     const fd = new FormData();
     fd.append('file', file);
-    return new Promise<void>((resolve, reject) => {
+    if (folderId) fd.append('folderId', folderId);
+    return new Promise<FileMeta>((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', '/api/files');
       xhr.withCredentials = true;
@@ -70,8 +97,13 @@ export const api = {
         if (e.lengthComputable && onProgress) onProgress((e.loaded / e.total) * 100);
       };
       xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) resolve();
-        else {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch {
+            reject(new ApiError(xhr.status, 'invalid response'));
+          }
+        } else {
           let msg = xhr.responseText;
           try {
             msg = JSON.parse(xhr.responseText).error ?? msg;
@@ -89,4 +121,42 @@ export const api = {
   downloadUrl: (id: string) => `/api/files/${id}/download`,
 
   deleteFile: (id: string) => request<void>(`/api/files/${id}`, { method: 'DELETE' }),
+
+  moveFile: (id: string, folderId: string | null) =>
+    request<FileMeta>(`/api/files/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ folderId }),
+    }),
+
+  renameFile: (id: string, originalName: string) =>
+    request<FileMeta>(`/api/files/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ originalName }),
+    }),
+
+  // Folders
+
+  listFolders: () => request<FolderMeta[]>('/api/folders'),
+
+  getFolder: (id: string) => request<FolderDetail>(`/api/folders/${id}`),
+
+  createFolder: (name: string, parentId: string | null = null) =>
+    request<FolderMeta>('/api/folders', {
+      method: 'POST',
+      body: JSON.stringify({ name, parentId }),
+    }),
+
+  renameFolder: (id: string, name: string) =>
+    request<FolderMeta>(`/api/folders/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ name }),
+    }),
+
+  moveFolder: (id: string, parentId: string | null) =>
+    request<FolderMeta>(`/api/folders/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ parentId }),
+    }),
+
+  deleteFolder: (id: string) => request<void>(`/api/folders/${id}`, { method: 'DELETE' }),
 };

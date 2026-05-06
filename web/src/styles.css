@@ -150,3 +150,50 @@ button:disabled { opacity: 0.6; cursor: progress; }
 .dashboard { display: grid; gap: 16px; }
 
 .footer { text-align: center; margin-top: 32px; font-size: 12px; }
+
+.breadcrumb {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  font-size: 14px;
+}
+.breadcrumb .crumb { display: inline-flex; align-items: center; }
+.breadcrumb .crumb-sep { color: var(--muted); margin: 0 4px; }
+.breadcrumb .btn-link[disabled] { color: var(--text); cursor: default; opacity: 1; }
+.breadcrumb .btn-link[disabled]:hover { background: transparent; }
+
+.actions-row { display: inline-flex; gap: 8px; align-items: center; }
+
+.inline-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.inline-form input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  padding: 8px 10px;
+  border-radius: var(--radius);
+  font-size: 14px;
+  flex: 1;
+  max-width: 280px;
+}
+
+.folder-row .folder-name { font-weight: 500; padding-left: 0; }
+.folder-row .folder-name:hover { background: rgba(91,157,255,0.08); }
+
+.card.drag-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(91,157,255,0.15) inset;
+}
+.drop-hint {
+  text-align: center;
+  border: 1px dashed var(--accent);
+  border-radius: var(--radius);
+  padding: 12px;
+  margin: 8px 0;
+  background: rgba(91,157,255,0.06);
+}
