@@ -1,3 +1,4 @@
+import { pathToFileURL } from 'node:url';
 import express from 'express';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
@@ -50,7 +51,7 @@ export function createApp() {
   return app;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const app = createApp();
   app.listen(PORT, HOST, () => {
     console.log(`papavanz_cloud API listening on http://${HOST}:${PORT} (${IS_PROD ? 'prod' : 'dev'})`);
