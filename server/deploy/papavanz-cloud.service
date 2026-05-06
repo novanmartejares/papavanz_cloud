@@ -1,0 +1,21 @@
+[Unit]
+Description=papavanz_cloud private storage API
+After=network.target
+
+[Service]
+Type=simple
+User=cloud
+Group=cloud
+WorkingDirectory=/home/cloud/papavanz_cloud/server
+EnvironmentFile=/home/cloud/papavanz_cloud/server/.env
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=3
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/cloud/papavanz_cloud/server/data /mnt/backup-primary/cloud-storage
+
+[Install]
+WantedBy=multi-user.target

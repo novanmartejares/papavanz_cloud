@@ -1,0 +1,37 @@
+# dependencies
+node_modules/
+
+# env
+.env
+.env.local
+.env.*.local
+
+# build output
+dist/
+build/
+
+# data (never commit)
+server/data/
+server/prisma/data/
+server/storage/
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# typescript build info
+*.tsbuildinfo
+
+# logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# editor
+.vscode/
+.idea/
+.DS_Store
+
+# prisma
+server/prisma/migrations/dev.db*
