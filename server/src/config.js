@@ -28,3 +28,10 @@ export const CORS_ORIGINS = (process.env.CORS_ORIGINS ?? 'http://localhost:5173'
   .filter(Boolean);
 
 export const MAX_UPLOAD_BYTES = Number(process.env.MAX_UPLOAD_BYTES ?? 5 * 1024 ** 3);
+
+// Optional: absolute path to a built frontend (e.g. /opt/papavanz_cloud/web/dist).
+// When set and the directory exists, the API serves it as static files with an
+// SPA fallback so the whole app runs through one origin / one port.
+export const STATIC_DIR = process.env.STATIC_DIR
+  ? path.resolve(process.env.STATIC_DIR)
+  : null;
