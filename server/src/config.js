@@ -22,6 +22,9 @@ export const STORAGE_ROOT = path.resolve(process.env.STORAGE_ROOT ?? './storage'
 
 export const DEFAULT_QUOTA = BigInt(process.env.DEFAULT_QUOTA_BYTES ?? 5n * 1024n ** 3n);
 
+// Admin accounts get 200 GB by default.
+export const ADMIN_QUOTA = BigInt(process.env.ADMIN_QUOTA_BYTES ?? 200n * 1024n ** 3n);
+
 export const CORS_ORIGINS = (process.env.CORS_ORIGINS ?? 'http://localhost:5173')
   .split(',')
   .map((s) => s.trim())

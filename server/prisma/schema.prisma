@@ -11,11 +11,15 @@ model User {
   id           String   @id @default(uuid())
   email        String   @unique
   passwordHash String
+  role         String   @default("user") // "user" | "admin"
   storageQuota BigInt   @default(5368709120)
   storageUsed  BigInt   @default(0)
+  disabled     Boolean  @default(false)
   createdAt    DateTime @default(now())
   files        File[]
   folders      Folder[]
+  shareLinks   ShareLink[]
+  activities   ActivityLog[]
 }
 
 model Folder {
@@ -33,18 +37,65 @@ model Folder {
 }
 
 model File {
-  id           String   @id @default(uuid())
+  id           String      @id @default(uuid())
   userId       String
-  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user         User        @relation(fields: [userId], references: [id], onDelete: Cascade)
   folderId     String?
-  folder       Folder?  @relation(fields: [folderId], references: [id], onDelete: Cascade)
+  folder       Folder?     @relation(fields: [folderId], references: [id], onDelete: Cascade)
   originalName String
   storedName   String
   mimeType     String?
   sizeBytes    BigInt
   sha256       String?
-  createdAt    DateTime @default(now())
+  starred      Boolean     @default(false)
+  trashedAt    DateTime?   // null = not trashed; set = soft-deleted
+  createdAt    DateTime    @default(now())
+  shareLinks   ShareLink[]
+  versions     FileVersion[]
 
   @@index([userId])
   @@index([userId, folderId])
+  @@index([userId, starred])
+  @@index([userId, trashedAt])
+}
+
+model ShareLink {
+  id          String    @id @default(uuid())
+  token       String    @unique // random URL-safe token
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fileId      String
+  file        File      @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  password    String?   // bcrypt hash (optional)
+  expiresAt   DateTime? // null = never expires
+  downloadCount Int     @default(0)
+  maxDownloads  Int?    // null = unlimited
+  createdAt   DateTime  @default(now())
+
+  @@index([token])
+  @@index([userId])
+}
+
+model ActivityLog {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  action    String   // "upload", "download", "delete", "share", "trash", "restore", "login", etc.
+  detail    String?  // human-readable detail, e.g. filename
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt])
+}
+
+model FileVersion {
+  id           String   @id @default(uuid())
+  fileId       String
+  file         File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+  storedName   String
+  sizeBytes    BigInt
+  mimeType     String?
+  createdAt    DateTime @default(now())
+
+  @@index([fileId])
 }

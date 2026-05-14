@@ -10,14 +10,20 @@ import authRoutes from './routes/auth.js';
 import fileRoutes from './routes/files.js';
 import folderRoutes from './routes/folders.js';
 import bulkRoutes from './routes/bulk.js';
+import adminRoutes from './routes/admin.js';
+import { shareAuthRoutes, sharePublicRoutes } from './routes/share.js';
+import trashRoutes from './routes/trash.js';
+import starredRoutes from './routes/starred.js';
+import activityRoutes from './routes/activity.js';
 import { notFound, errorHandler } from './middleware/errors.js';
+import { startTrashCleanup } from './lib/cleanup.js';
 
 export function createApp() {
   const app = express();
 
   app.disable('x-powered-by');
   app.set('trust proxy', 1); // behind Cloudflare Tunnel / nginx
-  app.use(helmet());
+  app.use(helmet({ hsts: false, contentSecurityPolicy: false }));
 
   // Tiny CORS shim — only allow configured origins, with credentials.
   app.use((req, res, next) => {
@@ -26,8 +32,8 @@ export function createApp() {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
       res.setHeader('Access-Control-Allow-Credentials', 'true');
-      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,DELETE,OPTIONS');
-      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Share-Password');
     }
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
@@ -64,6 +70,18 @@ export function createApp() {
     bulkRoutes,
   );
 
+  // New feature routes (under /api).
+  app.use('/api/shares', shareAuthRoutes);
+  app.use('/api/trash', trashRoutes);
+  app.use('/api/starred', starredRoutes);
+  app.use('/api/activity', activityRoutes);
+
+  // Admin routes.
+  app.use('/admin', adminRoutes);
+
+  // Public share link download (no auth required).
+  app.use('/api/public/shares', sharePublicRoutes);
+
   // Optionally serve a built frontend (web/dist) from the same origin.
   // Enables single-port deployments behind Cloudflare Tunnel / Tailscale Funnel
   // without needing a separate static-file host.
@@ -72,7 +90,7 @@ export function createApp() {
     app.use(express.static(STATIC_DIR, { index: false, maxAge: '1h' }));
     app.get('*', (req, res, next) => {
       // Don't swallow API/auth/health 404s — those should still hit notFound.
-      if (req.path.startsWith('/api') || req.path.startsWith('/auth') || req.path === '/health') {
+      if (req.path.startsWith('/api') || req.path.startsWith('/auth') || req.path.startsWith('/admin') || req.path === '/health') {
         return next();
       }
       if (fs.existsSync(indexHtml)) return res.sendFile(indexHtml);
@@ -90,5 +108,6 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   const app = createApp();
   app.listen(PORT, HOST, () => {
     console.log(`papavanz_cloud API listening on http://${HOST}:${PORT} (${IS_PROD ? 'prod' : 'dev'})`);
+    startTrashCleanup();
   });
 }
