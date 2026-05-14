@@ -3,7 +3,7 @@ import { api, type FileMeta, type FolderMeta } from '../api';
 
 interface Props {
   onClose: () => void;
-  onNavigate: (view: any, folderId?: string | null) => void;
+  onNavigate: (view: string, folderId?: string | null) => void;
 }
 
 export default function CommandPalette({ onClose, onNavigate }: Props) {

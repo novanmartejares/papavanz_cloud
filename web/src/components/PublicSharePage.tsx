@@ -8,7 +8,7 @@ interface Props {
 export default function PublicSharePage({ token }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [fileInfo, setFileInfo] = useState<any>(null);
+  const [fileInfo, setFileInfo] = useState<{ fileName?: string, fileSizeBytes?: number, fileMimeType?: string | null, hasPassword?: boolean, requiresPassword?: boolean, passwordProvided?: string } | null>(null);
   const [password, setPassword] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [textPreview, setTextPreview] = useState<string | null>(null);
@@ -28,7 +28,7 @@ export default function PublicSharePage({ token }: Props) {
   }, [token]);
 
   useEffect(() => {
-    if (fileInfo && !fileInfo.requiresPassword && fileInfo.fileMimeType?.startsWith('text/') && fileInfo.fileSizeBytes < 1024 * 1024) {
+    if (fileInfo && !fileInfo.requiresPassword && fileInfo.fileMimeType?.startsWith('text/') && (fileInfo.fileSizeBytes || 0) < 1024 * 1024) {
       // Lazy load text preview
       fetch(api.downloadPublicShareUrl(token, true))
         .then(res => res.text())
@@ -102,22 +102,22 @@ export default function PublicSharePage({ token }: Props) {
           ) : (
             <div>
               <div style={{ fontSize: '4rem', marginBottom: '1rem' }}>📄</div>
-              <h2 style={{ marginBottom: '0.5rem', wordBreak: 'break-all' }}>{fileInfo.fileName}</h2>
+              <h2 style={{ marginBottom: '0.5rem', wordBreak: 'break-all' }}>{fileInfo!.fileName}</h2>
               <p style={{ color: 'var(--muted)', marginBottom: '2rem' }}>
-                {(fileInfo.fileSizeBytes / 1024 / 1024).toFixed(2)} MB • {fileInfo.fileMimeType || 'Unknown Type'}
+                {((fileInfo!.fileSizeBytes || 0) / 1024 / 1024).toFixed(2)} MB • {fileInfo!.fileMimeType || 'Unknown Type'}
               </p>
 
-              {fileInfo.fileMimeType?.startsWith('image/') && (
+              {fileInfo!.fileMimeType?.startsWith('image/') && (
                 <div style={{ marginBottom: '2rem', background: 'var(--bg-hover)', borderRadius: '8px', overflow: 'hidden' }}>
-                  <img src={getDownloadUrl(true)} alt={fileInfo.fileName} style={{ maxWidth: '100%', maxHeight: '400px', objectFit: 'contain' }} />
+                  <img src={getDownloadUrl(true)} alt={fileInfo!.fileName} style={{ maxWidth: '100%', maxHeight: '400px', objectFit: 'contain' }} />
                 </div>
               )}
-              {fileInfo.fileMimeType?.startsWith('video/') && (
+              {fileInfo!.fileMimeType?.startsWith('video/') && (
                 <div style={{ marginBottom: '2rem', background: 'var(--bg-hover)', borderRadius: '8px', overflow: 'hidden' }}>
                   <video src={getDownloadUrl(true)} controls style={{ maxWidth: '100%', maxHeight: '400px' }} />
                 </div>
               )}
-              {fileInfo.fileMimeType?.startsWith('audio/') && (
+              {fileInfo!.fileMimeType?.startsWith('audio/') && (
                 <div style={{ marginBottom: '2rem' }}>
                   <audio src={getDownloadUrl(true)} controls style={{ width: '100%' }} />
                 </div>

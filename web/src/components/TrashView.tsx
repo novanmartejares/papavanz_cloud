@@ -113,11 +113,11 @@ export default function TrashView({ onBack, onRefresh }: Props) {
                   </button>
                 </td>
                 <td>{fmtBytes(f.sizeBytes)}</td>
-                <td>{(f as any).trashedAt ? new Date((f as any).trashedAt).toLocaleString() : '—'}</td>
+                <td>{f.trashedAt ? new Date(f.trashedAt).toLocaleString() : '—'}</td>
                 <td className="muted">
-                  {(f as any).trashedAt ? (
+                  {f.trashedAt ? (
                     (() => {
-                      const daysLeft = Math.max(0, 30 - Math.floor((Date.now() - new Date((f as any).trashedAt).getTime()) / (1000 * 60 * 60 * 24)));
+                      const daysLeft = Math.max(0, 30 - Math.floor((Date.now() - new Date(f.trashedAt!).getTime()) / (1000 * 60 * 60 * 24)));
                       return daysLeft === 0 ? 'Today' : `in ${daysLeft} day${daysLeft === 1 ? '' : 's'}`;
                     })()
                   ) : '—'}

@@ -212,7 +212,7 @@ function UsersTab({ onError }: { onError: (msg: string) => void; onViewFiles?: (
     } catch (e) { if (e instanceof ApiError) onError(e.message); }
   }, [onError]);
 
-  useEffect(() => { load(page, search); }, [page, load]);
+  useEffect(() => { load(page, search); }, [page, search, load]);
 
   function doSearch() { setPage(1); load(1, search); }
 
@@ -651,4 +651,4 @@ function SettingsTab({ onError }: { onError: (msg: string) => void }) {
 // by making the tab switch work via state at the top level. Since that would
 // require more complex state, we just let users click into the files tab
 // and select from there for now. The onViewFiles callback isn't used yet.
-function setSelectedUserId(_id: string) { /* placeholder for future cross-tab nav */ }
+function setSelectedUserId(_id: string) { void _id; /* placeholder for future cross-tab nav */ }

@@ -189,7 +189,7 @@ export default function App() {
         <CommandPalette 
           onClose={() => setShowPalette(false)} 
           onNavigate={(v, folderId) => {
-            setView(v);
+            setView(v as AppView);
             if (folderId !== undefined) setJumpFolderId(folderId);
           }} 
         />

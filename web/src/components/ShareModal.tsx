@@ -27,7 +27,7 @@ export default function ShareModal({ file, onClose }: Props) {
     setLoading(true);
 
     try {
-      const opts: any = {};
+      const opts: { password?: string; expiresIn?: number; maxDownloads?: number } = {};
       if (password.trim()) opts.password = password.trim();
       if (expiresInStr.trim()) {
         const h = parseInt(expiresInStr, 10);

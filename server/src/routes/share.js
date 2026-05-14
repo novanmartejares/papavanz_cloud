@@ -8,7 +8,6 @@ import { requireAuth } from '../middleware/auth.js';
 import { safeUserPath } from '../lib/storage.js';
 import { logActivity } from '../lib/activity.js';
 
-const router = Router();
 
 // --- Authenticated endpoints: create / list / delete share links --------
 

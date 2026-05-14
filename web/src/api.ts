@@ -16,6 +16,7 @@ export interface FileMeta {
   createdAt: string;
   folderId: string | null;
   starred: boolean;
+  trashedAt?: string | null;
 }
 
 export interface FileVersion {
@@ -141,10 +142,12 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export class ApiError extends Error {
   status: number;
   duplicateInfo?: { existingFile: { id: string; originalName: string; sizeBytes: number; createdAt: string } };
-  constructor(status: number, message: string, extra?: any) {
+  constructor(status: number, message: string, extra?: Record<string, unknown>) {
     super(message);
     this.status = status;
-    if (extra?.existingFile) this.duplicateInfo = { existingFile: extra.existingFile };
+    if (extra && 'existingFile' in extra && extra.existingFile) {
+      this.duplicateInfo = { existingFile: extra.existingFile as { id: string; originalName: string; sizeBytes: number; createdAt: string } };
+    }
   }
 }
 
@@ -213,14 +216,14 @@ export const api = {
           }
         } else {
           let msg = xhr.responseText;
-          let parsed: any = null;
+          let parsed: Record<string, unknown> | null = null;
           try {
             parsed = JSON.parse(xhr.responseText);
-            msg = parsed.error ?? msg;
+            msg = (parsed && typeof parsed.error === 'string') ? parsed.error : msg;
           } catch {
             /* keep raw */
           }
-          reject(new ApiError(xhr.status, msg || xhr.statusText, parsed));
+          reject(new ApiError(xhr.status, msg || xhr.statusText, parsed ?? undefined));
         }
       };
       xhr.onerror = () => reject(new ApiError(0, 'network error'));
@@ -342,9 +345,9 @@ export const api = {
 
   // Share links
   getPublicShare: (token: string, password?: string) => {
-    const headers: any = {};
+    const headers: Record<string, string> = {};
     if (password) headers['X-Share-Password'] = password;
-    return request<any>(`/api/public/shares/${token}`, { headers });
+    return request<Record<string, unknown>>(`/api/public/shares/${token}`, { headers });
   },
 
   downloadPublicShareUrl: (token: string, inline = false) => `/api/public/shares/${token}?download=1${inline ? '&inline=1' : ''}`,

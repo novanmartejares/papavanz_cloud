@@ -241,8 +241,8 @@ export default function Dashboard({ me, onMeChange, jumpFolderId, clearJump }: P
           }
         }
         if (queue.length > 0) await handleUploadMany(queue);
-      } catch (err: any) {
-        setError('Error reading dropped folder: ' + err.message);
+      } catch (err) {
+        setError('Error reading dropped folder: ' + (err instanceof Error ? err.message : String(err)));
       } finally {
         setBusy(false);
         await refresh();
